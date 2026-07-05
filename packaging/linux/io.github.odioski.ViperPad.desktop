@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ViperPad
+GenericName=Scratchpad Editor
+Comment=Edit and preview Markdown, HTML, text, and source files in a browser
+Exec=viperpad
+Icon=io.github.odioski.ViperPad
+Terminal=false
+Categories=Utility;TextEditor;
+Keywords=editor;scratchpad;markdown;html;code;preview;
+StartupNotify=false

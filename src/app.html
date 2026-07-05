@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ViperPad</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; height: 100vh; overflow: hidden; background: Canvas; color: CanvasText; }
+    header { height: 58px; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent); }
+    button { height: 38px; border: 0; border-radius: 7px; padding: 0 13px; background: #6957e8; color: white; font: inherit; font-weight: 650; cursor: pointer; white-space: nowrap; }
+    button:hover:not(:disabled) { filter: brightness(.92); }
+    button:disabled { cursor: default; opacity: .45; }
+    button.secondary { background: color-mix(in srgb, CanvasText 9%, Canvas); color: CanvasText; }
+    .address { min-width: 120px; flex: 1; display: flex; align-items: center; height: 38px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 7px; background: color-mix(in srgb, CanvasText 5%, Canvas); }
+    #position { width: 72px; height: 100%; padding: 0 9px; border: 0; border-right: 1px solid color-mix(in srgb, CanvasText 14%, transparent); outline: none; background: color-mix(in srgb, CanvasText 4%, transparent); color: color-mix(in srgb, CanvasText 78%, Canvas); font: 12px ui-monospace, monospace; text-align: center; }
+    #position:disabled { opacity: .45; }
+    #url { min-width: 0; flex: 1; height: 100%; padding: 0 10px; border: 0; outline: none; background: transparent; color: inherit; font: 13px ui-monospace, monospace; }
+    #copy, #clear { height: 100%; background: transparent; color: inherit; padding: 0 10px; font-size: 12px; }
+    .address-separator { color: color-mix(in srgb, CanvasText 35%, Canvas); font-size: 12px; user-select: none; }
+    #status { flex: 0 1 auto; width: auto; max-width: min(520px, 34vw); padding: 0 5px; overflow: visible; color: color-mix(in srgb, CanvasText 60%, Canvas); font-size: 12px; white-space: normal; line-height: 1.2; }
+    main { position: relative; isolation: isolate; height: calc(100vh - 58px); background: #020617; }
+    iframe { width: 100%; height: 100%; border: 0; background: rgb(2 6 23 / 0.6); }
+    .splash-bg { position: absolute; inset: 0; z-index: -1; display: grid; place-items: center; pointer-events: none; }
+    .content-layer { position: relative; z-index: 1; height: 100%; background: rgb(2 6 23 / 0.6); }
+    .empty { position: relative; height: 100%; display: grid; place-items: center; overflow: hidden; background: rgb(2 6 23 / 0.6); color: #dbeafe; text-align: center; }
+    .splash-art { width: min(76vmin, 720px); height: min(76vmin, 720px); object-fit: contain; filter: saturate(.92); }
+    .splash-label { position: absolute; z-index: 1; left: 50%; bottom: clamp(22px, 5vh, 52px); transform: translateX(-50%); width: max-content; max-width: 90%; padding: 10px 18px; border: 1px solid #ffffff1c; border-radius: 999px; background: #071027bb; box-shadow: 0 8px 30px #0007; backdrop-filter: blur(12px); }
+    .splash-label strong { display: block; color: #f8fafc; font-size: 15px; letter-spacing: .02em; }
+    .splash-label span { color: #94a3b8; font-size: 12px; }
+    .editor-host { height: 100%; background: rgb(2 6 23 / 0.6); }
+    input[type=file] { display: none; }
+    @media (max-width: 820px) { #status, #copy, #clear, .address-separator { display: none; } button { padding: 0 10px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="pick" type="button">Open file</button>
+    <input id="fallback" type="file">
+    <div class="address">
+      <input id="position" aria-label="Editor line and column" value="-" disabled>
+      <input id="url" list="recent" aria-label="File or remote URL" placeholder="Paste an HTTP(S) URL or open a local file">
+      <datalist id="recent"></datalist>
+      <button id="copy" type="button">Copy</button>
+      <span class="address-separator" aria-hidden="true">|</span>
+      <button id="clear" type="button">Clear</button>
+    </div>
+    <button id="go" class="secondary" type="button">Open URL</button>
+    <button id="mode" class="secondary" type="button" disabled>Edit</button>
+    <button id="save" type="button" disabled>Save</button>
+    <span id="status">No file</span>
+  </header>
+  <main id="main">
+    <div class="splash-bg" aria-hidden="true">
+      <img class="splash-art" src="/assets/splash.png" alt="">
+    </div>
+    <div id="content" class="content-layer">
+      <div class="empty">
+        <div class="splash-label"><strong>ViperPad</strong><span>Open a local file or enter a remote URL</span></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/assets/editor.js"></script>
+  <script>
+    const pickButton = document.querySelector('#pick');
+    const fallback = document.querySelector('#fallback');
+    const recentList = document.querySelector('#recent');
+    const positionField = document.querySelector('#position');
+    const urlField = document.querySelector('#url');
+    const copyButton = document.querySelector('#copy');
+    const clearButton = document.querySelector('#clear');
+    const goButton = document.querySelector('#go');
+    const modeButton = document.querySelector('#mode');
+    const saveButton = document.querySelector('#save');
+    const status = document.querySelector('#status');
+    const content = document.querySelector('#content');
+    const defaultPlaceholder = 'Paste an HTTP(S) URL or open a local file';
+    const recentStorageKey = 'viperpad-recent-remote-paths';
+    let handle = null;
+    let fileId = location.pathname.match(/^\/view\/(\d+)$/)?.[1] ?? null;
+    let fingerprint = '';
+    let timer = null;
+    let editing = false;
+    let dirty = false;
+    let currentSource = '';
+    let currentKind = '';
+    let currentName = '';
+    const recentRemotePaths = loadRecentRemotePaths();
+
+    renderRecentRemotePaths();
+
+    function fileKind(file) {
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.md') || name.endsWith('.markdown')) return 'markdown';
+      if (name.endsWith('.html') || name.endsWith('.htm')) return 'html';
+      if (name.endsWith('.txt')) return 'text';
+      if (name.endsWith('.pdf')) return 'pdf';
+      if (/\.(docx?|odt|rtf)$/i.test(name)) return 'document';
+      return 'code';
+    }
+
+    function isExtractedKind(kind) {
+      return kind === 'document' || kind === 'pdf';
+    }
+
+    function currentFileKindForSave() {
+      const name = handle?.name || currentName || '';
+      return name ? fileKind({ name }) : currentKind;
+    }
+
+    function shouldSaveExtractedText() {
+      return isExtractedKind(currentFileKindForSave());
+    }
+
+    function extractedTextSaveName() {
+      return `${(currentName || handle?.name || 'viperpad-document').replace(/\.[^.]+$/, '')}.txt`;
+    }
+
+    function updateControls() {
+      modeButton.disabled = !fileId;
+      modeButton.textContent = editing ? 'Preview' : 'Edit';
+      saveButton.disabled = !editing || !dirty;
+      saveButton.title = isExtractedKind(currentKind)
+        ? 'Save the extracted text'
+        : 'Choose where to save the edited file';
+    }
+
+    function updateCursorPosition(position) {
+      positionField.disabled = false;
+      positionField.value = `${position.line}:${position.column}`;
+    }
+
+    function resetCursorPosition() {
+      positionField.value = '-';
+      positionField.disabled = true;
+    }
+
+    function focusEditorPosition() {
+      const match = positionField.value.trim().match(/^(\d+)(?::(\d+))?$/);
+      if (!match) {
+        positionField.select();
+        return;
+      }
+      LiveEditor.focusPosition(Number(match[1]), Number(match[2] ?? 1));
+    }
+
+    function loadRecentRemotePaths() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(recentStorageKey) ?? '[]');
+        return Array.isArray(saved) ? saved.filter(value => typeof value === 'string' && value.trim()) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function renderRecentRemotePaths() {
+      recentList.replaceChildren(...recentRemotePaths.map(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        return option;
+      }));
+    }
+
+    function rememberRemotePath(value) {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      const next = [trimmed, ...recentRemotePaths.filter(entry => entry !== trimmed)].slice(0, 8);
+      recentRemotePaths.splice(0, recentRemotePaths.length, ...next);
+      localStorage.setItem(recentStorageKey, JSON.stringify(recentRemotePaths));
+      renderRecentRemotePaths();
+    }
+
+    function formatLoadedSource(value) {
+      const trimmed = value.trim();
+      if (!trimmed) return defaultPlaceholder;
+      const normalized = trimmed.replace(/\\/g, '/');
+      const segments = normalized.split('/').filter(Boolean);
+      const filename = segments.at(-1) ?? normalized;
+      return filename && filename !== normalized ? `${normalized} (${filename})` : normalized;
+    }
+
+    function setAddressSource(value = '') {
+      currentSource = value.trim();
+      urlField.placeholder = currentSource ? formatLoadedSource(currentSource) : defaultPlaceholder;
+    }
+
+    function currentViewerUrl() {
+      return fileId ? `${location.origin}/view/${fileId}` : '';
+    }
+
+    function showSplash() {
+      clearInterval(timer);
+      timer = null;
+      handle = null;
+      fileId = null;
+      editing = false;
+      dirty = false;
+      LiveEditor.destroy();
+      resetCursorPosition();
+      history.replaceState(null, '', '/');
+      setAddressSource();
+      content.innerHTML = `
+        <div class="empty">
+          <div class="splash-label"><strong>ViperPad</strong><span>Open a local file or enter a remote URL</span></div>
+        </div>`;
+      status.textContent = 'No file';
+      currentKind = '';
+      currentName = '';
+      updateControls();
+    }
+
+    async function showViewer() {
+      if (!fileId) return;
+      editing = false;
+      dirty = false;
+      LiveEditor.destroy();
+      resetCursorPosition();
+      history.replaceState(null, '', `/view/${fileId}`);
+      content.innerHTML = '';
+
+      const response = await fetch(`/api/files/${fileId}/raw`, { cache: 'no-store' });
+      if (response.ok) {
+        const file = await response.json();
+        currentKind = file.kind;
+        currentName = file.name;
+        if (file.kind === 'code') {
+          content.innerHTML = '<div class="editor-host"></div>';
+          await LiveEditor.mount(content.firstElementChild, file.body, file.name, false, () => {}, updateCursorPosition);
+          status.textContent = `Viewing · ${file.name}`;
+          updateControls();
+          return;
+        }
+      }
+
+      const frame = document.createElement('iframe');
+      frame.title = 'File preview';
+      frame.sandbox = 'allow-scripts allow-forms allow-modals allow-popups allow-downloads';
+      frame.src = `/api/files/${fileId}?t=${Date.now()}`;
+      content.append(frame);
+      updateControls();
+    }
+
+    async function showEditor() {
+      if (!fileId) return;
+      const response = await fetch(`/api/files/${fileId}/raw`, { cache: 'no-store' });
+      if (!response.ok) throw new Error(await response.text());
+      const file = await response.json();
+      currentKind = file.kind;
+      currentName = file.name;
+      editing = true;
+      dirty = false;
+      content.innerHTML = '<div class="editor-host"></div>';
+      await LiveEditor.mount(content.firstElementChild, file.body, file.name, true, () => {
+        dirty = true;
+        status.textContent = `Modified · ${file.name}`;
+        updateControls();
+      }, updateCursorPosition);
+      status.textContent = `Editing · ${file.name}`;
+      updateControls();
+    }
+
+    async function upload(file, body = null) {
+      const creating = !fileId;
+      const endpoint = creating ? '/api/files' : `/api/files/${fileId}`;
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: { 'x-file-name': encodeURIComponent(file.name), 'x-file-kind': fileKind(file) },
+        body: body ?? await file.arrayBuffer(),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      if (creating) fileId = await response.text();
+      fingerprint = `${file.lastModified}:${file.size}`;
+      currentKind = fileKind(file);
+      currentName = file.name;
+      setAddressSource(handle?.name ?? file.name);
+      urlField.value = '';
+      status.textContent = file.name;
+      await showViewer();
+    }
+
+    async function saveFile() {
+      if (!editing || !dirty) return;
+      try {
+        if (shouldSaveExtractedText()) {
+          await saveExtractedTextFile();
+          return;
+        }
+        status.textContent = 'Saving…';
+        const content = LiveEditor.getValue();
+        const file = await saveWithFilePicker(content, handle?.name ?? 'viperpad-file.txt');
+        await upload(file, new TextEncoder().encode(content));
+        status.textContent = `Saved · ${file.name}`;
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          status.textContent = 'Save cancelled';
+          return;
+        }
+        status.textContent = error.message;
+      }
+    }
+
+    async function saveExtractedTextFile() {
+      status.textContent = 'Saving extracted text…';
+      const editorText = LiveEditor.getValue();
+      const bytes = new TextEncoder().encode(editorText);
+      const file = await saveWithFilePicker(bytes, extractedTextSaveName());
+      await upload(file, bytes);
+      status.textContent = `Saved · ${file.name}`;
+    }
+
+    async function saveWithFilePicker(content, suggestedName) {
+      handle = await showSaveFilePicker({ suggestedName });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return await handle.getFile();
+    }
+
+    async function watchFile() {
+      if (!handle || dirty) return;
+      try {
+        const file = await handle.getFile();
+        const next = `${file.lastModified}:${file.size}`;
+        if (next !== fingerprint) await upload(file);
+      } catch (error) {
+        status.textContent = 'Access lost';
+        console.error(error);
+      }
+    }
+
+    async function chooseFile() {
+      if (!window.showOpenFilePicker) {
+        fallback.click();
+        return;
+      }
+      try {
+        [handle] = await showOpenFilePicker({ multiple: false });
+        fileId = null;
+        const file = await handle.getFile();
+        await upload(file);
+        urlField.value = file.name;
+        clearInterval(timer);
+        timer = setInterval(watchFile, 700);
+      } catch (error) {
+        if (error.name !== 'AbortError') status.textContent = error.message;
+      }
+    }
+
+    async function openRemote() {
+      const remoteUrl = urlField.value.trim();
+      if (!/^https?:\/\//i.test(remoteUrl)) {
+        status.textContent = 'Enter an HTTP or HTTPS URL';
+        return;
+      }
+      try {
+        status.textContent = 'Downloading…';
+        const response = await fetch('/api/remote', { method: 'PUT', body: remoteUrl });
+        if (!response.ok) throw new Error(await response.text());
+        fileId = await response.text();
+        handle = null;
+        clearInterval(timer);
+        rememberRemotePath(remoteUrl);
+        setAddressSource(remoteUrl);
+        urlField.value = '';
+        status.textContent = 'Remote file';
+        await showViewer();
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    pickButton.addEventListener('click', chooseFile);
+    fallback.addEventListener('change', async () => {
+      if (!fallback.files[0]) return;
+      fileId = null;
+      handle = null;
+      clearInterval(timer);
+      try { await upload(fallback.files[0]); }
+      catch (error) { status.textContent = error.message; }
+    });
+    goButton.addEventListener('click', openRemote);
+    urlField.addEventListener('keydown', event => {
+      if (event.key === 'Enter') openRemote();
+    });
+    urlField.addEventListener('input', () => {
+      if (!urlField.value.trim()) showSplash();
+    });
+    positionField.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        focusEditorPosition();
+      }
+    });
+    modeButton.addEventListener('click', async () => {
+      try { editing ? await showViewer() : await showEditor(); }
+      catch (error) { status.textContent = error.message; }
+    });
+    saveButton.addEventListener('click', saveFile);
+    copyButton.addEventListener('click', async () => {
+      const text = urlField.value.trim() || currentSource || currentViewerUrl();
+      if (!text) return;
+      await navigator.clipboard.writeText(text);
+      copyButton.textContent = 'Copied';
+      setTimeout(() => copyButton.textContent = 'Copy', 1000);
+    });
+    clearButton.addEventListener('click', () => {
+      urlField.value = '';
+      showSplash();
+    });
+    addEventListener('keydown', event => {
+      if (event.ctrlKey && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        saveFile();
+      }
+    });
+
+    if (fileId) {
+      status.textContent = 'Viewer URL';
+      setAddressSource(currentViewerUrl());
+      showViewer();
+    } else {
+      setAddressSource();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec "${APPDIR}/usr/bin/viperpad" "$@"

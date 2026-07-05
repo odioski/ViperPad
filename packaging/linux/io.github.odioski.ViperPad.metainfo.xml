@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.odioski.ViperPad</id>
+  <name>ViperPad</name>
+  <summary>Browser-based scratchpad editor and live preview</summary>
+  <developer id="github.com/odioski">
+    <name>odioski</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>ViperPad is primarily an editor, similar to Scratchpad and online code editors, without a separate runtime window.</p>
+    <p>It edits and previews Markdown, HTML, plain text, and source code in a browser using a locally bundled CodeMirror editor.</p>
+  </description>
+  <launchable type="desktop-id">io.github.odioski.ViperPad.desktop</launchable>
+  <url type="homepage">https://github.com/odioski/ViperPad</url>
+  <url type="bugtracker">https://github.com/odioski/ViperPad/issues</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-06-22" />
+  </releases>
+</component>

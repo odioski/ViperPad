@@ -1,0 +1,21 @@
+target/
+node_modules/
+.cache/
+.venv/
+.flatpak-builder/
+build/
+dist/
+*.flatpak
+*.AppImage
+
+# Local developer artifacts
+.agents/
+.codex/
+.bash_history
+artifacts/
+boot/
+dev/
+
+# Misc.
+
+certs/
